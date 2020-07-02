@@ -46,8 +46,26 @@ var kubeVipStart = &cobra.Command{
 		log.SetLevel(log.Level(logLevel))
 		var err error
 
-		// If a configuration file is loaded, then it will overwrite flags
+		if startLocalPeer != "" {
+			localPeer, err := kubevip.ParsePeerConfig(startLocalPeer)
+			if err != nil {
+				panic(err.Error())
+			}
+			startConfig.LocalPeer = *localPeer
+		}
 
+		if len(startRemotePeers) != 0 {
+			for i := range startRemotePeers {
+				p, err := kubevip.ParsePeerConfig(startRemotePeers[i])
+				if err != nil {
+					cmd.Help()
+					log.Fatalln(err)
+				}
+				startConfig.RemotePeers = append(startConfig.RemotePeers, *p)
+			}
+		}
+
+		// If a configuration file is loaded, then it will overwrite flags
 		if configPath != "" {
 			c, err := kubevip.OpenConfig(configPath)
 			if err != nil {

@@ -57,10 +57,8 @@ func startNetworking(c *kubevip.Config) (*vip.Network, error) {
 
 // StartCluster - Begins a running instance of the Raft cluster
 func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
-
 	// Create local configuration address
 	localAddress := fmt.Sprintf("%s:%d", c.LocalPeer.Address, c.LocalPeer.Port)
-
 	// Begin the Raft configuration
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(c.LocalPeer.ID)
@@ -97,18 +95,17 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 	if c.StartAsLeader != true {
 		for x := range c.RemotePeers {
 			// Make sure that we don't add in this server twice
-			if c.LocalPeer.Address != c.RemotePeers[x].Address {
+			//if c.LocalPeer.Address != c.RemotePeers[x].Address && c.LocalPeer.Port != c.RemotePeers[x].Port {
 
-				// Build the address from the peer configuration
-				peerAddress := fmt.Sprintf("%s:%d", c.RemotePeers[x].Address, c.RemotePeers[x].Port)
-
-				// Set this peer into the raft configuration
-				configuration.Servers = append(configuration.Servers, raft.Server{
-					ID:      raft.ServerID(c.RemotePeers[x].ID),
-					Address: raft.ServerAddress(peerAddress)})
-			}
+			// Build the address from the peer configuration
+			peerAddress := fmt.Sprintf("%s:%d", c.RemotePeers[x].Address, c.RemotePeers[x].Port)
+			// Set this peer into the raft configuration
+			configuration.Servers = append(configuration.Servers, raft.Server{
+				ID:      raft.ServerID(c.RemotePeers[x].ID),
+				Address: raft.ServerAddress(peerAddress)})
+			//}
 		}
-		log.Info("This node will attempt to start as Follower")
+		log.Infof("This node will attempt to start as Follower, with [%d] members", len(configuration.Servers))
 	} else {
 		log.Info("This node will attempt to start as Leader")
 	}
@@ -171,6 +168,14 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 			// Broadcast the current leader on this node if it's the correct time (every leaderLogcount * time.Second)
 			if leaderbroadcast == leaderLogcount {
 				log.Infof("The Node [%s] is leading", raftServer.Leader())
+
+				// Grab the current list of members
+				var memberList string
+				for x := range raftServer.GetConfiguration().Configuration().Servers {
+					memberList = memberList + fmt.Sprintf("%s ", raftServer.GetConfiguration().Configuration().Servers[x].Address)
+				}
+				log.Debugln(memberList)
+
 				// Reset the timer
 				leaderbroadcast = 0
 
@@ -337,8 +342,10 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 					if err != nil {
 						log.Warnf("%v", err)
 					}
+					raftServer.LeadershipTransfer()
 				}
 
+				raftServer.Shutdown()
 				close(cluster.completed)
 
 				return
