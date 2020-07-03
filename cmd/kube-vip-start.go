@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/plunder-app/kube-vip/pkg/cluster"
 	"github.com/plunder-app/kube-vip/pkg/kubevip"
@@ -109,7 +110,11 @@ var kubeVipStart = &cobra.Command{
 		}
 
 		signalChan := make(chan os.Signal, 1)
+
+		// sigInterupt signal sent from command line
 		signal.Notify(signalChan, os.Interrupt)
+		// sigterm signal sent from kubernetes
+		signal.Notify(signalChan, syscall.SIGTERM)
 
 		<-signalChan
 

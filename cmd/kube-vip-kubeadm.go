@@ -23,6 +23,9 @@ var initLoadBalancer kubevip.LoadBalancer
 // Points to a kubernetes configuration file
 var kubeConfigPath string
 
+//
+var kubeClient bool
+
 func init() {
 
 	localpeer, err := autoGenLocalPeer()
@@ -47,6 +50,7 @@ func init() {
 	kubeKubeadm.PersistentFlags().IntVar(&initLoadBalancer.BackendPort, "lbBackEndPort", 6444, "A port that all backends may be using (optional)")
 
 	kubeKubeadmJoin.Flags().StringVar(&kubeConfigPath, "config", "/etc/kubernetes/admin.conf", "The path of a kubernetes configuration file")
+	kubeKubeadmJoin.PersistentFlags().BoolVar(&kubeClient, "kubeConf", false, "Use the Kubernetes client to pull data for remote Peers")
 
 	kubeKubeadm.AddCommand(kubeKubeadmInit)
 	kubeKubeadm.AddCommand(kubeKubeadmJoin)
@@ -107,47 +111,48 @@ var kubeKubeadmJoin = &cobra.Command{
 			cmd.Help()
 			log.Fatalln("No address is specified for kube-vip to expose services on")
 		}
-
-		if _, err := os.Stat(kubeConfigPath); os.IsNotExist(err) {
-			log.Fatalf("Unable to find file [%s]", kubeConfigPath)
-		}
-
-		// We will use kubeconfig in order to find all the master nodes
-		// use the current context in kubeconfig
-		config, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-
-		// create the clientset
-		clientset, err := kubernetes.NewForConfig(config)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-
-		opts := metav1.ListOptions{}
-		opts.LabelSelector = "node-role.kubernetes.io/master"
-		nodes, err := clientset.CoreV1().Nodes().List(opts)
-
-		// Iterate over all nodes that are masters and find the details to build a peer list
-		for x := range nodes.Items {
-			// Get hostname and address
-			var nodeAddress, nodeHostname string
-			for y := range nodes.Items[x].Status.Addresses {
-				switch nodes.Items[x].Status.Addresses[y].Type {
-				case corev1.NodeHostName:
-					nodeHostname = nodes.Items[x].Status.Addresses[y].Address
-				case corev1.NodeInternalIP:
-					nodeAddress = nodes.Items[x].Status.Addresses[y].Address
-				}
+		if kubeClient {
+			if _, err := os.Stat(kubeConfigPath); os.IsNotExist(err) {
+				log.Fatalf("Unable to find file [%s]", kubeConfigPath)
 			}
 
-			newPeer, err := kubevip.ParsePeerConfig(fmt.Sprintf("%s:%s:%d", nodeHostname, nodeAddress, 10000))
+			// We will use kubeconfig in order to find all the master nodes
+			// use the current context in kubeconfig
+			config, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 			if err != nil {
-				panic(err.Error())
+				log.Fatal(err.Error())
 			}
-			initConfig.RemotePeers = append(initConfig.RemotePeers, *newPeer)
 
+			// create the clientset
+			clientset, err := kubernetes.NewForConfig(config)
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+
+			opts := metav1.ListOptions{}
+			opts.LabelSelector = "node-role.kubernetes.io/master"
+			nodes, err := clientset.CoreV1().Nodes().List(opts)
+
+			// Iterate over all nodes that are masters and find the details to build a peer list
+			for x := range nodes.Items {
+				// Get hostname and address
+				var nodeAddress, nodeHostname string
+				for y := range nodes.Items[x].Status.Addresses {
+					switch nodes.Items[x].Status.Addresses[y].Type {
+					case corev1.NodeHostName:
+						nodeHostname = nodes.Items[x].Status.Addresses[y].Address
+					case corev1.NodeInternalIP:
+						nodeAddress = nodes.Items[x].Status.Addresses[y].Address
+					}
+				}
+
+				newPeer, err := kubevip.ParsePeerConfig(fmt.Sprintf("%s:%s:%d", nodeHostname, nodeAddress, 10000))
+				if err != nil {
+					panic(err.Error())
+				}
+				initConfig.RemotePeers = append(initConfig.RemotePeers, *newPeer)
+
+			}
 		}
 		// Generate manifest and print
 		cfg := kubevip.GenerateManifestFromConfig(&initConfig, Release.Version)

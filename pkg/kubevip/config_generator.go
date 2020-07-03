@@ -350,11 +350,28 @@ func GenerateManifestFromConfig(c *Config, imageVersion string) string {
 						"start",
 					},
 					Env: newEnvironment,
+					VolumeMounts: []appv1.VolumeMount{
+						{
+							Name:      "kubeconfig",
+							MountPath: "/etc/kubernetes/admin.conf",
+						},
+					},
+				},
+			},
+			Volumes: []appv1.Volume{
+				{
+					Name: "kubeconfig",
+					VolumeSource: appv1.VolumeSource{
+						HostPath: &appv1.HostPathVolumeSource{
+							Path: "/etc/kubernetes/admin.conf",
+						},
+					},
 				},
 			},
 			HostNetwork: true,
 		},
 	}
+
 	b, _ := yaml.Marshal(newManifest)
 	return string(b)
 }

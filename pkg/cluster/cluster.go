@@ -9,6 +9,8 @@ import (
 	"github.com/plunder-app/kube-vip/pkg/kubevip"
 	"github.com/plunder-app/kube-vip/pkg/loadbalancer"
 	"github.com/plunder-app/kube-vip/pkg/vip"
+	watchtools "k8s.io/client-go/tools/watch"
+
 	log "github.com/sirupsen/logrus"
 )
 
@@ -20,6 +22,10 @@ type Cluster struct {
 	stop         chan bool
 	completed    chan bool
 	network      *vip.Network
+
+	raftServer *raft.Raft
+	watching   bool
+	rw         *watchtools.RetryWatcher
 }
 
 // InitCluster - Will attempt to initialise all of the required settings for the cluster
@@ -116,7 +122,7 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 	}
 
 	// Create RAFT instance
-	raftServer, err := raft.NewRaft(config, cluster.stateMachine, logStore, stableStore, snapshots, transport)
+	cluster.raftServer, err = raft.NewRaft(config, cluster.stateMachine, logStore, stableStore, snapshots, transport)
 	if err != nil {
 		return err
 	}
@@ -154,6 +160,10 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 	log.Infoln("This instance will wait approximately 5 seconds, from cold start to ensure cluster elections are complete")
 	time.Sleep(time.Second * 5)
 
+	log.Infoln("Starting watcher")
+	go cluster.newNodeWatcher(c.LocalPeer.ID)
+	cluster.watching = true
+
 	go func() {
 		for {
 			if c.AddPeersAsBackends == true {
@@ -167,20 +177,21 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 			}
 			// Broadcast the current leader on this node if it's the correct time (every leaderLogcount * time.Second)
 			if leaderbroadcast == leaderLogcount {
-				log.Infof("The Node [%s] is leading", raftServer.Leader())
+				log.Infof("The Node [%s] is leading", cluster.raftServer.Leader())
+				cluster.raftServer.VerifyLeader()
 
 				// Grab the current list of members
 				var memberList string
-				for x := range raftServer.GetConfiguration().Configuration().Servers {
-					memberList = memberList + fmt.Sprintf("%s ", raftServer.GetConfiguration().Configuration().Servers[x].Address)
+				for x := range cluster.raftServer.GetConfiguration().Configuration().Servers {
+					memberList = memberList + fmt.Sprintf("%s ", cluster.raftServer.GetConfiguration().Configuration().Servers[x].Address)
 				}
-				log.Debugln(memberList)
+				log.Infoln(memberList)
 
 				// Reset the timer
 				leaderbroadcast = 0
 
 				// ensure that if this node is the leader, it is set as the leader
-				if localAddress == string(raftServer.Leader()) {
+				if localAddress == string(cluster.raftServer.Leader()) {
 					// Re-broadcast arp to ensure network stays up to date
 					if c.GratuitousARP == true {
 						// Gratuitous ARP, will broadcast to new MAC <-> IP
@@ -203,7 +214,7 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 			leaderbroadcast++
 
 			select {
-			case leader := <-raftServer.LeaderCh():
+			case leader := <-cluster.raftServer.LeaderCh():
 				log.Infoln("New Election event")
 				if leader {
 					isLeader = true
@@ -213,8 +224,8 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 					if err != nil {
 						log.Warnf("%v", err)
 					}
-					// If the load balancer is enabled, configure the backends
 
+					// If the load balancer is enabled, configure the backends
 					if c.EnableLoadBalancer {
 						// Once we have the VIP running, start the load balancer(s) that bind to the VIP
 						for x := range c.LoadBalancers {
@@ -224,7 +235,7 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 								if err != nil {
 									log.Warnf("Error creating loadbalancer [%s] type [%s] -> error [%s]", c.LoadBalancers[x].Name, c.LoadBalancers[x].Type, err)
 									log.Errorf("Dropping Leadership to another node in the cluster")
-									raftServer.LeadershipTransfer()
+									cluster.raftServer.LeadershipTransfer()
 
 									// Stop all load balancers associated with the VIP
 									err = VipLB.StopAll()
@@ -251,7 +262,10 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 					isLeader = false
 
 					log.Info("This node is becoming a follower within the cluster")
-
+					// if cluster.watching {
+					// 	cluster.rw.Stop()
+					// 	cluster.watching = false
+					// }
 					// Stop all load balancers associated with the VIP
 					err = VipLB.StopAll()
 					if err != nil {
@@ -281,6 +295,10 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 							log.Warnf("%v", err)
 						}
 
+						// This will start the kubernetes cluster watcher
+						// log.Infoln("Starting cluster watcher")
+						// go cluster.newWatcher()
+						// cluster.watching = true
 						if c.EnableLoadBalancer {
 							// Once we have the VIP running, start the load balancer(s) that bind to the VIP
 							for x := range c.LoadBalancers {
@@ -291,7 +309,7 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 									if err != nil {
 										log.Warnf("Error creating loadbalancer [%s] type [%s] -> error [%s]", c.LoadBalancers[x].Name, c.LoadBalancers[x].Type, err)
 										log.Errorf("Dropping Leadership to another node in the cluster")
-										raftServer.LeadershipTransfer()
+										cluster.raftServer.LeadershipTransfer()
 
 										// Stop all load balancers associated with the VIP
 										err = VipLB.StopAll()
@@ -303,6 +321,11 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 										if err != nil {
 											log.Warnf("%v", err)
 										}
+										// // Stop the watcher
+										// if cluster.watching {
+										// 	cluster.rw.Stop()
+										// 	cluster.watching = false
+										// }
 									}
 								}
 							}
@@ -342,10 +365,14 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 					if err != nil {
 						log.Warnf("%v", err)
 					}
-					raftServer.LeadershipTransfer()
+					// future := cluster.raftServer.LeadershipTransfer()
+					// err = future.Error()
+					// if err != nil {
+					// 	log.Warnf("%v", err)
+					// }
 				}
 
-				raftServer.Shutdown()
+				//cluster.raftServer.Shutdown()
 				close(cluster.completed)
 
 				return
@@ -356,6 +383,18 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config) error {
 	log.Info("Started")
 
 	return nil
+}
+
+// AddNode will add a node to the cluster
+func (cluster *Cluster) AddNode(name, address string) error {
+	future := cluster.raftServer.AddVoter(raft.ServerID(name), raft.ServerAddress(address), 0, time.Second*5)
+	return future.Error()
+}
+
+// DelNode will delete a node from the cluster
+func (cluster *Cluster) DelNode(name string) error {
+	future := cluster.raftServer.RemoveServer(raft.ServerID(name), 0, time.Second*5)
+	return future.Error()
 }
 
 // Stop - Will stop the Cluster and release VIP if needed
