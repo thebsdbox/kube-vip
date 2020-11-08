@@ -72,16 +72,17 @@ func (sm *Manager) syncServices(s *plndrServices) error {
 			}
 		}
 
-		// Generate new Virtual IP configuration
-		newVip := kubevip.Config{
-			VIP:           s.Services[x].Vip,
-			Interface:     Interface,
-			SingleNode:    true,
-			GratuitousARP: EnableArp,
-		}
-
 		// This instance wasn't found, we need to add it to the manager
 		if foundInstance == false {
+
+			// Generate new Virtual IP configuration
+			newVip := kubevip.Config{
+				VIP:           s.Services[x].Vip,
+				Interface:     Interface,
+				SingleNode:    true,
+				GratuitousARP: EnableArp,
+			}
+
 			// Create new service
 			var newService serviceInstance
 
@@ -143,7 +144,7 @@ func (sm *Manager) syncServices(s *plndrServices) error {
 							log.Errorf("Failed to add Service [%s] / [%s]", newService.service.ServiceName, newService.service.UID)
 							//return err
 						}
-						err = c.StartLoadBalancerService(&newService.vipConfig, false)
+						err = c.StartLoadBalancerService(&newService.vipConfig)
 						if err != nil {
 							log.Errorf("Failed to add Service [%s] / [%s]", newService.service.ServiceName, newService.service.UID)
 							//return err
@@ -217,7 +218,7 @@ func (sm *Manager) syncServices(s *plndrServices) error {
 				log.Errorf("Failed to add Service [%s] / [%s]", s.Services[x].ServiceName, s.Services[x].UID)
 				return err
 			}
-			err = c.StartLoadBalancerService(&newService.vipConfig, false)
+			err = c.StartLoadBalancerService(&newService.vipConfig)
 			if err != nil {
 				log.Errorf("Failed to add Service [%s] / [%s]", s.Services[x].ServiceName, s.Services[x].UID)
 				return err

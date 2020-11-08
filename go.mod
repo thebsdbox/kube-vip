@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	github.com/armon/go-metrics v0.3.4 // indirect
+	github.com/brutella/dnssd v1.1.1
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgryski/go-farm v0.0.0-20200201041132-a6ae2369ad13 // indirect
 	github.com/digineo/go-dhclient v1.0.2

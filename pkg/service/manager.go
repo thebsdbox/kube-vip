@@ -8,12 +8,15 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/brutella/dnssd"
 	"github.com/davecgh/go-spew/spew"
 	dhclient "github.com/digineo/go-dhclient"
+
 	"github.com/plunder-app/kube-vip/pkg/cluster"
 	"github.com/plunder-app/kube-vip/pkg/kubevip"
 	log "github.com/sirupsen/logrus"
@@ -62,6 +65,9 @@ type serviceInstance struct {
 
 	// Custom settings
 	dhcp *dhcpService
+
+	// mDNS settings
+	mDNSConfig *dnssd.ServiceHandle
 }
 
 // TODO - call from a package (duplicated struct in the cloud-provider code)
@@ -78,8 +84,13 @@ type service struct {
 type Manager struct {
 	clientSet *kubernetes.Clientset
 	configMap string
+
 	// Keeps track of all running instances
 	serviceInstances []serviceInstance
+
+	// Additional services that need managing
+	mdnsEnabled bool
+	mdns        dnssd.Responder
 }
 
 // NewManager will create a new managing object
@@ -126,6 +137,13 @@ func (sm *Manager) Start() error {
 	id, err := os.Hostname()
 	if err != nil {
 		return err
+	}
+
+	//Enable the mDNS responder, and store the configuration in manager
+	sm.mdnsEnabled, _ = strconv.ParseBool(os.Getenv("enableMDNS"))
+	if sm.mdnsEnabled {
+		sm.mdns, err = dnssd.NewResponder()
+		sm.mdns.Respond(context.TODO())
 	}
 
 	// Build a options structure to defined what we're looking for
@@ -259,6 +277,9 @@ func (sm *Manager) Start() error {
 				log.Infof("leader lost: %s", id)
 				for x := range sm.serviceInstances {
 					sm.serviceInstances[x].cluster.Stop()
+					if sm.serviceInstances[x].mDNSConfig != nil {
+
+					}
 				}
 			},
 			OnNewLeader: func(identity string) {
