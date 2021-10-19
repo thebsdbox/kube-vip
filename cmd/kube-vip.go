@@ -74,6 +74,8 @@ func init() {
 	kubeVipCmd.PersistentFlags().IntVar(&initConfig.Port, "port", 6443, "listen port for the VIP")
 	kubeVipCmd.PersistentFlags().StringVar(&initConfig.VIPCIDR, "cidr", "32", "The CIDR range for the virtual IP address")
 	kubeVipCmd.PersistentFlags().BoolVar(&initConfig.EnableARP, "arp", false, "Enable Arp for Vip changes")
+	kubeVipCmd.PersistentFlags().BoolVar(&initConfig.EnableVRRP, "vrrp", false, "Enable VRRP for Vip management")
+
 	kubeVipCmd.PersistentFlags().StringVar(&initConfig.Annotations, "annotations", "", "Set Node annotations prefix for parsing")
 	kubeVipCmd.PersistentFlags().BoolVar(&initConfig.DDNS, "ddns", false, "use Dynamic DNS + DHCP to allocate VIP for address")
 
@@ -208,7 +210,7 @@ var kubeVipManager = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Set the logging level for all subsequent functions
 		log.SetLevel(log.Level(logLevel))
-
+		log.SetReportCaller(true)
 		go servePrometheusHTTPServer(cmd.Context(), PrometheusHTTPServerConfig{
 			Addr: initConfig.PrometheusHTTPServer,
 		})
@@ -248,7 +250,7 @@ var kubeVipManager = &cobra.Command{
 		// Start the service manager, this will watch the config Map and construct kube-vip services for it
 		err = mgr.Start()
 		if err != nil {
-			log.Fatalf("%v", err)
+			log.Fatalf("Failed to start -> %v", err)
 		}
 	},
 }
@@ -274,7 +276,7 @@ func servePrometheusHTTPServer(ctx context.Context, config PrometheusHTTPServerC
 		}
 	}()
 
-	log.Printf("server started")
+	log.Printf("starting Prometheus metrics")
 
 	<-ctx.Done()
 

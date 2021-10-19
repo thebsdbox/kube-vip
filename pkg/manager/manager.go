@@ -108,7 +108,9 @@ func New(configMap string, config *kubevip.Config) (*Manager, error) {
 	}
 
 	clientset, err = kubernetes.NewForConfig(cfg)
-
+	if err != nil {
+		return nil, fmt.Errorf("error creating kubernetes client: %s", err.Error())
+	}
 	// If this is a control pane host it will likely have started as a static pod or wont have the
 	// VIP up before trying to connect to the API server, we set the API endpoint to this machine to
 	// ensure connectivity.
@@ -169,6 +171,13 @@ func (sm *Manager) Start() error {
 		log.Infoln("Starting Kube-vip Manager with the ARP engine")
 		log.Infof("Namespace [%s], Hybrid mode [%t]", sm.config.Namespace, sm.config.EnableControlPane && sm.config.EnableServices)
 		return sm.startARP()
+	}
+
+	// If ARP is enabled then we start a LeaderElection that will use ARP to advertise VIPs
+	if sm.config.EnableVRRP {
+		log.Infoln("Starting Kube-vip Manager with the VRRP engine")
+		log.Infof("Namespace [%s], Hybrid mode [%t]", sm.config.Namespace, sm.config.EnableControlPane && sm.config.EnableServices)
+		return sm.startVRRP()
 	}
 
 	log.Infoln("Prematurely exiting Load-balancer as neither Layer2 or Layer3 is enabled")

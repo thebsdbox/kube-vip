@@ -12,6 +12,9 @@ type Config struct {
 	// EnableARP, will use ARP to advertise the VIP address
 	EnableARP bool `yaml:"enableARP"`
 
+	// EnableVRRP, will use VRRP to determine who advertises the VIP address
+	EnableVRRP bool `yaml:"enableVRRP"`
+
 	// EnableBGP, will use BGP to advertise the VIP address
 	EnableBGP bool `yaml:"enableBGP"`
 

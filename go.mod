@@ -21,6 +21,7 @@ require (
 	github.com/json-iterator/go v1.1.11 // indirect
 	github.com/kamhlos/upnp v0.0.0-20210324072331-5661950dff08
 	github.com/magiconair/properties v1.8.5 // indirect
+	github.com/mdlayher/arp v0.0.0-20191213142603-f72070a231fc
 	github.com/mdlayher/ndp v0.0.0-20200602162440-17ab9e3e5567
 	github.com/mdlayher/raw v0.0.0-20210412142147-51b895745faf // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect

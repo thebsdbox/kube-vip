@@ -163,10 +163,10 @@ func (c *DHCPClient) Start() {
 
 func (c *DHCPClient) request() (*nclient4.Lease, error) {
 	broadcast, err := nclient4.New(c.iface.Name)
-	defer broadcast.Close()
 	if err != nil {
 		return nil, fmt.Errorf("create a broadcast client for iface %s failed, error: %w", c.iface.Name, err)
 	}
+	defer broadcast.Close()
 	return broadcast.Request(context.TODO())
 }
 
