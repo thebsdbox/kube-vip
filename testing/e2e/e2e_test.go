@@ -20,6 +20,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/onsi/gomega/format"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
 	kindconfigv1alpha4 "sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
@@ -32,6 +33,11 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
 )
+
+func init() {
+	// Sets the output
+	format.UseStringerRepresentation = true
+}
 
 type kubevipManifestValues struct {
 	ControlPlaneVIP string
@@ -48,6 +54,7 @@ var _ = Describe("kube-vip broadcast neighbor", func() {
 	)
 
 	BeforeEach(func() {
+		
 		klog.SetOutput(GinkgoWriter)
 		logger = TestLogger{}
 
@@ -120,7 +127,6 @@ var _ = Describe("kube-vip broadcast neighbor", func() {
 				ImagePath:       imagePath,
 			})).To(Succeed())
 		})
-
 		It("provides an IPv4 VIP address for the Kubernetes control plane nodes", func() {
 			By(withTimestamp("creating a kind cluster with multiple control plane nodes"))
 			createKindCluster(logger, &clusterConfig, clusterName)
